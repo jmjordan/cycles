@@ -1,33 +1,29 @@
 import sqlite3 as lite
-from datetime import date
-import datetime
+from dateutil.parser import *
+from dateutil.tz import *
+from datetime import *
 import time
 import sys
-import os
+from os import path,system
 
 def display_menu():
     return raw_input("> ")
     
 def new_cycle(con):
-    new_start_date_str = raw_input("When did this cycle start [%s]? "%(date.today().strftime('%Y-%m-%d')))
-    cur = con.cursor()
-    cur.execute("SELECT * FROM cycles order by id desc")
-    row = cur.fetchone()
-    if row != None:
-        prev_id = row[0]
-        start_date = datetime.datetime.strptime(row[1],"%Y-%m-%d").date()
-        
-        if new_start_date_str != "":
-            new_start_date = datetime.datetime.strptime(new_start_date_str,"%Y-%m-%d").date()
-        else:
-            new_start_date_str = date.today().strftime('%Y-%m-%d')
-            new_start_date = date.today()
-        length = (new_start_date - start_date).days
-        if length > 0:
-            cur.execute("UPDATE cycles SET length=%d where id=%d"%(length,prev_id))
-            cur.execute("INSERT into cycles(start_date,length) VALUES('%s',%d)"%(new_start_date_str,-1))
+    new_start_date_str = raw_input("When did this cycle start [%s]? "%(datetime.today().strftime('%b %d, %Y')))
+    if new_start_date_str != "":
+        try:
+            new_start_dt = int(parse(new_start_date_str,default=datetime.today()).strftime("%s"))
+            if new_start_dt > int(datetime.today().date().strftime("%s")):
+                raise Exception('future date')
+        except Exception,e:
+            print "That date is invalid: %s. Please try again."%e
+            new_cycle(con)
+            return
     else:
-        cur.execute("INSERT into cycles(start_date,length) VALUES('%s',%d)"%(new_start_date_str,-1))
+        new_start_dt = int(datetime.today().strftime("%s"))
+    cur = con.cursor()
+    cur.execute("INSERT into cycles(start_dt) VALUES(%d)"%(new_start_dt))
     return
     
 def edit(con):
@@ -38,7 +34,7 @@ def edit(con):
     print "| Cycle | Start Date | Period End |"
     for i in range(len(rows)):
         length = rows[i][2]  
-        start_date = datetime.datetime.strptime(rows[i][1],"%Y-%m-%d").date()
+        start_date = datetime.strptime(rows[i][1],"%Y-%m-%d").date()
         period_length = compute_period_length(rows[i][1],rows[i][3])
         print "| %5s | %10s | %10s |"%(i+1,rows[i][1],rows[i][3])
     print "|---------------------------------|"
@@ -80,78 +76,89 @@ def edit_cycle(con,cycle_id,start_date,last_day_of_period):
 #    cur.execute("UPDATE cycles set start_date='%s',last_day_of_period='%s' where id=%s"%(start_date,last_day_of_period if last_day_of_period != '' else 'null',cycle_id))
     return
     
-def compute_period_length(start_date,last_day_of_period):
-    if last_day_of_period == None:
+def compute_period_length(start_dt,period_end_dt):
+    if period_end_dt == None:
         return -1
-    return (datetime.datetime.strptime(last_day_of_period,"%Y-%m-%d").date() - datetime.datetime.strptime(start_date,"%Y-%m-%d").date()).days + 1
+    return (datetime.fromtimestamp(period_end_dt) - datetime.fromtimestamp(start_dt)).days + 1
+    
+def compute_cycle_length(previous_start_dt, start_dt):
+    return (datetime.fromtimestamp(start_dt) - datetime.fromtimestamp(previous_start_dt)).days
     
 
     
 def show_all(con):
     cur = con.cursor()
-    cur.execute("SELECT * FROM cycles")
+    cur.execute("SELECT id,start_dt,period_end_dt FROM cycles order by start_dt desc")
     rows = cur.fetchall()
-    print "|----------- Cycles -----------|"
-    print "|            | Flow   | Cycle  |"
-    print "| Start Date | Length | Length |"
-    print "|------------------------------|"
+    print "|------------ Cycles ------------|"
+    print "| Cycle        | Flow   | Cycle  |"
+    print "| Start Date   | Length | Length |"
+    print "|--------------------------------|"
     for i in range(len(rows)):
-        length = rows[i][2]  
-        start_date = datetime.datetime.strptime(rows[i][1],"%Y-%m-%d").date()
-        period_length = compute_period_length(rows[i][1],rows[i][3])
-        print "| %10s | %6s | %6s |"%(rows[i][1],(period_length if period_length != -1 else ''),(length if length != -1 else ''))
-    print "|------------------------------|"
+        length = -1
+        if i > 0:
+            length = compute_cycle_length(rows[i][1],rows[i-1][1])
+        start_dt = datetime.fromtimestamp(rows[i][1])
+        period_length = compute_period_length(rows[i][1],rows[i][2])
+        print "| %10s | %6s | %6s |"%(start_dt.strftime("%b %d, %Y"),(period_length if period_length != -1 else '--'),(length if length != -1 else '--'))
+    print "|--------------------------------|"
     return
     
 def stats(con):
     cur = con.cursor()
-    cur.execute("SELECT * FROM cycles")
+    cur.execute("SELECT start_dt,period_end_dt FROM cycles order by start_dt desc")
     rows = cur.fetchall()
     lengths_sum = 0
     period_lengths_sum = 0
-    count = 0
+    complete_cycle_count = 0
     period_lengths_count = 0
-    longest_cycle = 0
-    shortest_cycle = 99
-    last_cycle_date = None
+    longest_cycle_length = 0
+    longest_cycle_dt = None
+    shortest_cycle_length = 0
+    shortest_cycle_dt = None
+    last_start_dt = None
     for i in range(len(rows)):
-        period_length = compute_period_length(rows[i][1],rows[i][3])
-        if rows[i][2] != -1:
-            lengths_sum += rows[i][2]
-            count += 1
-            if rows[i][2] > longest_cycle:
-                longest_cycle = rows[i][2]
-            if rows[i][2] < shortest_cycle:
-                shortest_cycle = rows[i][2]
+        period_length = compute_period_length(rows[i][0],rows[i][1])
+        if i > 0:
+            cycle_length = compute_cycle_length(rows[i][0],rows[i-1][0])
+            lengths_sum += cycle_length
+            complete_cycle_count += 1
+            if (longest_cycle_dt == None) or (cycle_length > longest_cycle_length):
+                longest_cycle_length = cycle_length
+                longest_cycle_dt = datetime.fromtimestamp(rows[i][0])
+            if (shortest_cycle_dt == None) or (cycle_length < shortest_cycle_length):
+                shortest_cycle_length = cycle_length
+                shortest_cycle_dt = datetime.fromtimestamp(rows[i][0])
         if period_length != -1:
             period_lengths_sum += period_length
             period_lengths_count += 1
-        if i == (len(rows)-1):
-            last_cycle_date = datetime.datetime.strptime(rows[i][1],"%Y-%m-%d").date()
-    if count > 0:
-        average_length = lengths_sum/count
-        next_cycle_date = last_cycle_date + datetime.timedelta(days=average_length)
+        if i == (0):
+            last_start_dt = datetime.fromtimestamp(rows[i][0])
+    if complete_cycle_count > 0:
+        average_length = lengths_sum/complete_cycle_count
+        next_start_dt = last_start_dt + timedelta(days=average_length)
         if period_lengths_count > 0:
             average_period_length = period_lengths_sum/period_lengths_count
         print ""
-        print "Next cycle starts in %d days on %s."%((next_cycle_date - date.today()).days,next_cycle_date.strftime('%a, %b %d'))
-        print "Currently in day %d of cycle."%((date.today() - last_cycle_date).days+1)
+        print "Currently in day %d of cycle."%((datetime.today() - last_start_dt).days+1)
+        print "Next cycle starts in %d days on %s."%((next_start_dt - datetime.today()).days,next_start_dt.strftime('%a, %b %d'))
         print ""
         print "Average cycle length.... %d days"%average_length
         if period_lengths_count > 0:
             print "Average period length... %d days"%average_period_length
-        print "Cycles tracked.......... %d"%count
-        print "Shortest cycle.......... %d days"%shortest_cycle
-        print "Longest cycle........... %d days"%longest_cycle
+        print "Cycles tracked.......... %d"%complete_cycle_count
+        print "Shortest cycle.......... %s / %d days"%(shortest_cycle_dt.strftime('%b %d, %Y'),shortest_cycle_length)
+        print "Longest cycle........... %s / %d days"%(longest_cycle_dt.strftime('%b %d, %Y'),longest_cycle_length)
     else:
         print "No cycles entered"
     return     
 
-con = lite.connect('/Users/jonathan/Dropbox/Scripts/cycles.db')
+db_path=path.join(path.dirname(path.realpath(__file__)),'cycles.db')
+con = lite.connect(db_path)
 
 with con:    
     while 1:
-        os.system('clear')
+        system('clear')
         show_all(con)
         stats(con)
         choice = display_menu()
