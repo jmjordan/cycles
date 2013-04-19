@@ -93,7 +93,6 @@ def edit_cycle(con,cycle_id,start_dt,last_day_of_period):
     else:
         cur.execute("UPDATE cycles set period_end_dt=%s where id=%s"%(dt_to_ts(last_day_of_period),cycle_id))
         
-#    cur.execute("UPDATE cycles set start_date='%s',last_day_of_period='%s' where id=%s"%(start_date,last_day_of_period if last_day_of_period != '' else 'null',cycle_id))
     return
     
 def compute_period_length(start_dt,period_end_dt):
