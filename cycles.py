@@ -4,17 +4,25 @@ from dateutil.tz import *
 from datetime import *
 import time
 import sys
-from os import path,system
+import os
 
 def display_menu():
     return raw_input("> ")
     
+# Returns a datetime based on an input
+def ask_for_dt(question):
+    date_str = raw_input("%s [%s]? "%(question,datetime.today().strftime('%b %d, %Y')))
+    if (date_str == ""):
+        return parse(datetime.today().strftime('%b %d, %Y'))
+    else:
+        return parse(date_str)
+    
 def new_cycle(con):
-    new_start_date_str = raw_input("When did this cycle start [%s]? "%(datetime.today().strftime('%b %d, %Y')))
+    new_start_date_str = raw_input("When did the cycle start [%s]? "%(datetime.today().strftime('%b %d, %Y')))
     if new_start_date_str != "":
         try:
-            new_start_dt = int(parse(new_start_date_str,default=datetime.today()).strftime("%s"))
-            if new_start_dt > int(datetime.today().date().strftime("%s")):
+            new_start_dt = int(parse(new_start_date_str).strftime("%s"))
+            if new_start_dt > int(datetime.today().strftime("%s")):
                 raise Exception('future date')
         except Exception,e:
             print "That date is invalid: %s. Please try again."%e
@@ -28,50 +36,62 @@ def new_cycle(con):
     
 def edit(con):
     cur = con.cursor()
-    cur.execute("SELECT * FROM cycles order by id desc")
+    cur.execute("SELECT id,start_dt,period_end_dt FROM cycles order by id desc")
     rows = cur.fetchall()
     print "|------------- Cycles ------------|"
     print "| Cycle | Start Date | Period End |"
-    for i in range(len(rows)):
-        length = rows[i][2]  
-        start_date = datetime.strptime(rows[i][1],"%Y-%m-%d").date()
-        period_length = compute_period_length(rows[i][1],rows[i][3])
-        print "| %5s | %10s | %10s |"%(i+1,rows[i][1],rows[i][3])
+    for i in range(len(rows)): 
+        start_dt = datetime.fromtimestamp(rows[i][1])
+        period_end_dt_str = "--"
+        if rows[i][2] != None:
+            period_end_dt = datetime.fromtimestamp(rows[i][2])
+            period_end_dt_str = period_end_dt.strftime("%Y-%m-%d")
+        print "| %5s | %10s | %10s |"%(i+1,start_dt.strftime("%Y-%m-%d"),period_end_dt_str)
     print "|---------------------------------|"
-    cycle = raw_input("Which cycle would you like to edit [1]? ")
+    cycle_idx = raw_input("Which cycle would you like to edit [1]? ")
     cycle_id = int(rows[0][0])
-    if cycle != "":
-        cycle = int(cycle)
-        cycle_id = rows[cycle-1][0]
+    if cycle_idx != "":
+        cycle_idx = int(cycle_idx)
+        cycle_id = rows[cycle_idx-1][0]
     else:
-        cycle = 1
-    new_start_date_str=rows[cycle-1][1]
-    new_last_day_of_period_str=rows[cycle-1][3]
-    print "Current start date: %s"%new_start_date_str
-    print "Current last day of period: %s"%new_last_day_of_period_str
+        cycle_idx = 1
+    new_start_dt = datetime.fromtimestamp(rows[cycle_idx-1][1])
+    if rows[cycle_idx-1][2] != None:
+        new_last_day_of_period = datetime.fromtimestamp(rows[cycle_idx-1][2])
+    else:
+        new_last_day_of_period = None
+    print "\nCurrent start date: %s"%new_start_dt.strftime("%Y-%m-%d")
+    print "Current last day of period: %s"%(new_last_day_of_period.strftime("%Y-%m-%d") if new_last_day_of_period != None else "--")
     choice = raw_input("\n1) Edit start date\n2) Edit last day of period\n> ")
     if choice == '1':
-        new_start_date_str = raw_input("What is the new start date [YYYY-MM-DD]? ")
+        new_start_dt = ask_for_dt("What date did the cycle start")
     elif choice == '2':
-        new_last_day_of_period_str = raw_input("What is the new last day of period [YYYY-MM-DD]? ")
+        new_last_day_of_period = ask_for_dt("What date did the period stop")
     else:
         return
-    edit_cycle(con,cycle_id,new_start_date_str,new_last_day_of_period_str)
+    edit_cycle(con,cycle_id,new_start_dt,new_last_day_of_period)
     
     return
+    
+def dt_to_ts(dt):
+    if dt != None:
+        return int(dt.strftime("%s"))
+    else:
+        return -1
 
-def edit_cycle(con,cycle_id,start_date,last_day_of_period):
+def edit_cycle(con,cycle_id,start_dt,last_day_of_period):
     cur = con.cursor()
-    print "Update cycle %d... setting start_date to %s and last_day_of_period to %s."%(cycle_id,start_date,last_day_of_period if last_day_of_period != '' else 'null')
-    if start_date != "":
-        cur.execute("UPDATE cycles set start_date='%s' where id=%s"%(start_date,cycle_id))
+    
+    print "Update cycle %d... setting start_date to %s(%s) and last_day_of_period to %s(%s)."%(cycle_id,start_dt,dt_to_ts(start_dt),last_day_of_period if last_day_of_period != None else 'null',dt_to_ts(last_day_of_period) if last_day_of_period != None else 'null')
+    if start_dt != None:
+        cur.execute("UPDATE cycles set start_dt=%s where id=%s"%(dt_to_ts(start_dt),cycle_id))
     else:
         print "Cannot change start_date to blank!"
         
-    if last_day_of_period == None or last_day_of_period == '':
+    if last_day_of_period == None:
         cur.execute("UPDATE cycles set last_day_of_period=null where id=%s"%(cycle_id))
     else:
-        cur.execute("UPDATE cycles set last_day_of_period='%s' where id=%s"%(last_day_of_period,cycle_id))
+        cur.execute("UPDATE cycles set period_end_dt=%s where id=%s"%(dt_to_ts(last_day_of_period),cycle_id))
         
 #    cur.execute("UPDATE cycles set start_date='%s',last_day_of_period='%s' where id=%s"%(start_date,last_day_of_period if last_day_of_period != '' else 'null',cycle_id))
     return
@@ -79,7 +99,7 @@ def edit_cycle(con,cycle_id,start_date,last_day_of_period):
 def compute_period_length(start_dt,period_end_dt):
     if period_end_dt == None:
         return -1
-    return (datetime.fromtimestamp(period_end_dt) - datetime.fromtimestamp(start_dt)).days + 1
+    return (datetime.fromtimestamp(period_end_dt) - datetime.fromtimestamp(start_dt)).days
     
 def compute_cycle_length(previous_start_dt, start_dt):
     return (datetime.fromtimestamp(start_dt) - datetime.fromtimestamp(previous_start_dt)).days
@@ -139,26 +159,43 @@ def stats(con):
         next_start_dt = last_start_dt + timedelta(days=average_length)
         if period_lengths_count > 0:
             average_period_length = period_lengths_sum/period_lengths_count
+        days_till_next_cycle = (next_start_dt - datetime.today()).days
         print ""
         print "Currently in day %d of cycle."%((datetime.today() - last_start_dt).days+1)
-        print "Next cycle starts in %d days on %s."%((next_start_dt - datetime.today()).days,next_start_dt.strftime('%a, %b %d'))
+        if days_till_next_cycle < 0:
+            print "Next cycle is %s %s late. Should have started on %s."%(abs(days_till_next_cycle),"day" if days_till_next_cycle == 1 else "days",next_start_dt.strftime('%a, %b %d'))
+        else:
+           print "Next cycle starts in %d days on %s."%((next_start_dt - datetime.today()).days,next_start_dt.strftime('%a, %b %d'))
         print ""
         print "Average cycle length.... %d days"%average_length
         if period_lengths_count > 0:
             print "Average period length... %d days"%average_period_length
         print "Cycles tracked.......... %d"%complete_cycle_count
-        print "Shortest cycle.......... %s / %d days"%(shortest_cycle_dt.strftime('%b %d, %Y'),shortest_cycle_length)
-        print "Longest cycle........... %s / %d days"%(longest_cycle_dt.strftime('%b %d, %Y'),longest_cycle_length)
+        print "Shortest cycle.......... %d days / %s - %s"%(shortest_cycle_length,shortest_cycle_dt.strftime('%b %d, %Y'),(shortest_cycle_dt + timedelta(days=shortest_cycle_length)).strftime('%b %d, %Y'))
+        print "Longest cycle........... %d days / %s - %s"%(longest_cycle_length,longest_cycle_dt.strftime('%b %d, %Y'),(longest_cycle_dt + timedelta(days=longest_cycle_length)).strftime('%b %d, %Y'))
     else:
         print "No cycles entered"
     return     
+    
 
-db_path=path.join(path.dirname(path.realpath(__file__)),'cycles.db')
-con = lite.connect(db_path)
+db_dir=os.path.dirname(os.path.realpath(__file__))
+db_path=os.path.join(db_dir,'cycles.db')
+
+con = None
+
+if not os.path.exists(db_path):
+    print("[database created at {}]".format(db_path))
+    open(db_path, 'a').close()
+    con = lite.connect(db_path)
+    cur = con.cursor()    
+    cur.execute("CREATE TABLE cycles(id INTEGER PRIMARY KEY, start_dt INTEGER, period_end_dt INTEGER)")
+else:
+    con = lite.connect(db_path)
 
 with con:    
     while 1:
-        system('clear')
+        os.system('clear')
+        print ""
         show_all(con)
         stats(con)
         choice = display_menu()
@@ -167,7 +204,7 @@ with con:
             new_cycle(con)
         elif choice == 'edit':
             edit(con)
-        elif choice == 'quit':
+        elif choice == 'quit' or choice == 'exit':
             con.commit()
             sys.exit(0)
       
