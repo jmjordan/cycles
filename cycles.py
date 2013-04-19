@@ -206,5 +206,6 @@ with con:
         elif choice == 'quit' or choice == 'exit':
             con.commit()
             sys.exit(0)
+        con.commit()
       
 
