@@ -7,7 +7,9 @@ import sys
 import os
 
 def list_commands():
+    print ""
     print "  Type 'new' to log a cycle."
+    print "  Type 'list' to show all cycles."
     print "  Type 'edit' to edit a cycles start date or period end date."
     print "  Type 'quit' to save and exit."
 
@@ -18,14 +20,19 @@ def display_menu():
     
 # Returns a datetime based on an input
 def ask_for_dt(question):
-    date_str = raw_input("%s [%s]? "%(question,datetime.today().strftime('%b %d, %Y')))
+    now = datetime.today()
+    date_str = raw_input("%s [%s]? "%(question,now.strftime('%b %d, %Y %H:%M')))
     if (date_str == ""):
-        return parse(datetime.today().strftime('%b %d, %Y'))
+        return now
     else:
-        return parse(date_str)
+        try:
+            return parse(date_str)
+        except Exception,e:
+            print "That date is invalid: %s. Please try again."%e
+            return ask_for_dt(question)
     
 def new_cycle(con):
-    new_start_date_str = raw_input("When did the cycle start [%s]? "%(datetime.today().strftime('%b %d, %Y')))
+    new_start_date_str = ask_for_dt("When did the cycle start").strftime('%b %d, %Y %H:%M')
     if new_start_date_str != "":
         try:
             new_start_dt = int(parse(new_start_date_str).strftime("%s"))
@@ -48,15 +55,15 @@ def edit(con):
     if len(rows) == 0:
         print "You must log a cycle before you can edit."
         return False
-    print "|------------- Cycles ------------|"
-    print "| Cycle | Start Date | Period End |"
+    print "|---------- Cycles ------------|"
+    print "|  # | Start Date | Period End |"
     for i in range(len(rows)): 
         start_dt = datetime.fromtimestamp(rows[i][1])
         period_end_dt_str = "--"
         if rows[i][2] != None:
             period_end_dt = datetime.fromtimestamp(rows[i][2])
             period_end_dt_str = period_end_dt.strftime("%Y-%m-%d")
-        print "| %5s | %10s | %10s |"%(i+1,start_dt.strftime("%Y-%m-%d"),period_end_dt_str)
+        print "| %2s | %10s | %10s |"%(i+1,start_dt.strftime("%Y-%m-%d"),period_end_dt_str)
     print "|---------------------------------|"
     cycle_idx = raw_input("Which cycle would you like to edit [1]? ")
     cycle_id = int(rows[0][0])
@@ -70,15 +77,18 @@ def edit(con):
         new_last_day_of_period = datetime.fromtimestamp(rows[cycle_idx-1][2])
     else:
         new_last_day_of_period = None
-    print "\nCurrent start date: %s"%new_start_dt.strftime("%Y-%m-%d")
+    print "\nCurrent start date: %s"%new_start_dt.strftime("%Y-%m-%d %H:%M")
     print "Current last day of period: %s"%(new_last_day_of_period.strftime("%Y-%m-%d") if new_last_day_of_period != None else "--")
-    choice = raw_input("\n1) Edit start date\n2) Edit last day of period\n> ")
+    choice = raw_input("\n1) Edit start date\n2) Edit last day of period\n3) Delete this cycle\n> ")
     if choice == '1':
         new_start_dt = ask_for_dt("What date did the cycle start")
     elif choice == '2':
         new_last_day_of_period = ask_for_dt("What was the last day of the period starting on %s"%new_start_dt.strftime("%b %d, %Y"))
+    elif choice == '3':
+        delete_cycle(con,cycle_id)
+        return True
     else:
-        return
+        return False
     edit_cycle(con,cycle_id,new_start_dt,new_last_day_of_period)
     
     return True
@@ -88,6 +98,16 @@ def dt_to_ts(dt):
         return int(dt.strftime("%s"))
     else:
         return -1
+        
+def delete_cycle(con,cycle_id):
+    cur=con.cursor()
+    confirm = raw_input("Are you sure [Y/n]?")
+    if confirm == "Y":
+        cur.execute("DELETE FROM cycles WHERE id=%d"%cycle_id)
+    elif confirm == "n":
+        return
+    else:
+        return delete_cycle(con,cycle_id)
 
 def edit_cycle(con,cycle_id,start_dt,last_day_of_period):
     cur = con.cursor()
@@ -113,13 +133,18 @@ def compute_period_length(start_dt,period_end_dt):
 def compute_cycle_length(previous_start_dt, start_dt):
     return (datetime.fromtimestamp(start_dt) - datetime.fromtimestamp(previous_start_dt)).days
     
-
-    
-def show_all(con):
+def last_n_cycles(con,n):
     cur = con.cursor()
-    cur.execute("SELECT id,start_dt,period_end_dt FROM cycles order by start_dt desc")
-    rows = cur.fetchall()
-    print "|------------ Cycles ------------|"
+    
+    
+    if n == 0:
+        cur.execute("SELECT id,start_dt,period_end_dt FROM cycles order by start_dt desc")
+        print "|------------ Cycles ------------|"
+    else:
+        cur.execute("SELECT id,start_dt,period_end_dt FROM cycles ORDER BY start_dt DESC LIMIT %d"%n)
+        print "|--------- Last %d Cycles --------|"%n
+    
+    rows = cur.fetchall()    
     print "| Cycle        | Flow   | Cycle  |"
     print "| Start Date   | Length | Length |"
     print "|--------------------------------|"
@@ -135,6 +160,9 @@ def show_all(con):
         print "|        No cycles logged        |"
     print "|--------------------------------|"
     return True
+    
+def show_all(con):
+    return last_n_cycles(con,0)
     
 def stats(con):
     cur = con.cursor()
@@ -213,13 +241,16 @@ with con:
         if show_cycles_after_command:
             os.system('clear')
             print ""
-            show_all(con)
+            last_n_cycles(con,4)
             stats(con)
         choice = display_menu()
         if choice == 'new':
             #Enter a new date
             new_cycle(con)
             show_cylces_after_command = True
+        elif choice == 'list':
+            show_all(con)
+            show_cycles_after_command = False
         elif choice == 'edit':
             edit(con)
             show_cylces_after_command = True
@@ -230,6 +261,6 @@ with con:
             sys.exit(0)
         else:
             show_cycles_after_command = False
-        con.commit()
+        #con.commit()
       
 
