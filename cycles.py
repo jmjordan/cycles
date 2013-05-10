@@ -1,3 +1,4 @@
+from __future__ import division
 import sqlite3 as lite
 from dateutil.parser import *
 from dateutil.tz import *
@@ -10,6 +11,7 @@ def list_commands():
     print ""
     print "  Type 'new' to log a cycle."
     print "  Type 'list' to show all cycles."
+    print "  Type 'stats' to show information on cycle history."
     print "  Type 'edit' to edit a cycles start date or period end date."
     print "  Type 'quit' to save and exit."
 
@@ -77,7 +79,7 @@ def edit(con):
         new_last_day_of_period = datetime.fromtimestamp(rows[cycle_idx-1][2])
     else:
         new_last_day_of_period = None
-    print "\nCurrent start date: %s"%new_start_dt.strftime("%Y-%m-%d %H:%M")
+    print "\nCurrent start date: %s"%new_start_dt.strftime("%Y-%m-%d")
     print "Current last day of period: %s"%(new_last_day_of_period.strftime("%Y-%m-%d") if new_last_day_of_period != None else "--")
     choice = raw_input("\n1) Edit start date\n2) Edit last day of period\n3) Delete this cycle\n> ")
     if choice == '1':
@@ -128,10 +130,12 @@ def edit_cycle(con,cycle_id,start_dt,last_day_of_period):
 def compute_period_length(start_dt,period_end_dt):
     if period_end_dt == None:
         return -1
-    return (datetime.fromtimestamp(period_end_dt) - datetime.fromtimestamp(start_dt)).days
+    length = datetime.fromtimestamp(period_end_dt) - datetime.fromtimestamp(start_dt)
+    return length.days + length.seconds/86400
     
 def compute_cycle_length(previous_start_dt, start_dt):
-    return (datetime.fromtimestamp(start_dt) - datetime.fromtimestamp(previous_start_dt)).days
+    length = datetime.fromtimestamp(start_dt) - datetime.fromtimestamp(previous_start_dt)
+    return length.days + length.seconds/86400
     
 def last_n_cycles(con,n):
     cur = con.cursor()
@@ -155,7 +159,7 @@ def last_n_cycles(con,n):
                 length = compute_cycle_length(rows[i][1],rows[i-1][1])
             start_dt = datetime.fromtimestamp(rows[i][1])
             period_length = compute_period_length(rows[i][1],rows[i][2])
-            print "| %10s | %6s | %6s |"%(start_dt.strftime("%b %d, %Y"),(period_length if period_length != -1 else '--'),(length if length != -1 else '--'))
+            print "| %10s | %6s | %6s |"%(start_dt.strftime("%b %d, %Y"),(round(period_length,1) if period_length != -1 else '--'),(round(length,1) if length != -1 else '--'))
     else:
         print "|        No cycles logged        |"
     print "|--------------------------------|"
@@ -171,6 +175,7 @@ def stats(con):
     lengths_sum = 0
     period_lengths_sum = 0
     complete_cycle_count = 0
+    valid_cycle_count = 0
     period_lengths_count = 0
     longest_cycle_length = 0
     longest_cycle_dt = None
@@ -180,10 +185,11 @@ def stats(con):
     for i in range(len(rows)):
         period_length = compute_period_length(rows[i][0],rows[i][1])
         if i > 0:
+            complete_cycle_count += 1
             cycle_length = compute_cycle_length(rows[i][0],rows[i-1][0])
             if cycle_length >= 21 and cycle_length <= 35:
                 lengths_sum += cycle_length
-                complete_cycle_count += 1
+                valid_cycle_count += 1
                 if (longest_cycle_dt == None) or (cycle_length > longest_cycle_length):
                     longest_cycle_length = cycle_length
                     longest_cycle_dt = datetime.fromtimestamp(rows[i][0])
@@ -196,7 +202,7 @@ def stats(con):
         if i == (0):
             last_start_dt = datetime.fromtimestamp(rows[i][0])
     if complete_cycle_count > 0:
-        average_length = lengths_sum/complete_cycle_count
+        average_length = lengths_sum/valid_cycle_count
         next_start_dt = last_start_dt + timedelta(days=average_length)
         if period_lengths_count > 0:
             average_period_length = period_lengths_sum/period_lengths_count
@@ -208,9 +214,9 @@ def stats(con):
         else:
            print "Next cycle starts in %d day(s) on %s."%((next_start_dt - datetime.today()).days,next_start_dt.strftime('%a, %b %d'))
         print ""
-        print "Average cycle length.... %d days"%average_length
+        print "Average cycle length.... %s days"%round(average_length,1)
         if period_lengths_count > 0:
-            print "Average period length... %d days"%average_period_length
+            print "Average period length... %s days"%round(average_period_length,1)
         print "Cycles logged .......... %d"%complete_cycle_count
         print "Shortest cycle.......... %d days / %s - %s"%(shortest_cycle_length,shortest_cycle_dt.strftime('%b %d, %Y'),(shortest_cycle_dt + timedelta(days=shortest_cycle_length)).strftime('%b %d, %Y'))
         print "Longest cycle........... %d days / %s - %s"%(longest_cycle_length,longest_cycle_dt.strftime('%b %d, %Y'),(longest_cycle_dt + timedelta(days=longest_cycle_length)).strftime('%b %d, %Y'))
@@ -238,7 +244,7 @@ with con:
     show_cycles_after_command = True  
     while 1:
         
-        if show_cycles_after_command:
+        if show_cycles_after_command == True:
             os.system('clear')
             print ""
             last_n_cycles(con,4)
@@ -251,6 +257,8 @@ with con:
         elif choice == 'list':
             show_all(con)
             show_cycles_after_command = False
+        elif choice == 'stats':
+            show_cycles_after_command = True
         elif choice == 'edit':
             edit(con)
             show_cylces_after_command = True
