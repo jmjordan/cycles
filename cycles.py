@@ -226,12 +226,13 @@ def stats(con):
     return True    
     
 
-db_dir="/Users/jonathan/"
+db_dir=os.path.expanduser('~/.cycles')
 db_path=os.path.join(db_dir,'cycles.db')
 
 con = None
 
 if not os.path.exists(db_path):
+    os.makedirs(db_dir) 
     print("[database created at {}]".format(db_path))
     open(db_path, 'a').close()
     con = lite.connect(db_path)
