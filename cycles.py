@@ -226,7 +226,7 @@ def stats(con):
     return True    
     
 
-db_dir=os.path.dirname(os.path.realpath(__file__))
+db_dir="/Users/jonathan/"
 db_path=os.path.join(db_dir,'cycles.db')
 
 con = None
