@@ -32,9 +32,11 @@ def ask_for_dt(question):
         except Exception,e:
             print "That date is invalid: %s. Please try again."%e
             return ask_for_dt(question)
-    
+
 def new_cycle(con):
     new_start_date_str = ask_for_dt("When did the cycle start").strftime('%b %d, %Y %H:%M')
+    if new_start_date_str == -1:
+        return False
     if new_start_date_str != "":
         try:
             new_start_dt = int(parse(new_start_date_str).strftime("%s"))
@@ -232,7 +234,8 @@ db_path=os.path.join(db_dir,'cycles.db')
 con = None
 
 if not os.path.exists(db_path):
-    os.makedirs(db_dir) 
+    if not os.path.exists(db_dir):
+        os.makedirs(db_dir) 
     print("[database created at {}]".format(db_path))
     open(db_path, 'a').close()
     con = lite.connect(db_path)
@@ -246,8 +249,6 @@ with con:
     while 1:
         
         if show_cycles_after_command == True:
-            os.system('clear')
-            print ""
             last_n_cycles(con,4)
             stats(con)
         choice = display_menu()
@@ -270,6 +271,6 @@ with con:
             sys.exit(0)
         else:
             show_cycles_after_command = False
-        #con.commit()
+        con.commit()
       
 
