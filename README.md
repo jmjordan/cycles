@@ -78,9 +78,9 @@ To view a list of every cycle that has been logged, enter `list` and hit enter.
     | Jan 14, 2013 |    5.0 |   24.0 |
     |--------------------------------|    
 
-#### Editing
+#### Editing/Deleting
 
-To edit an entry type `edit` and hit enter.
+To edit or delete an entry type `edit` and hit enter.
 
 This will show a list of all cycles starting with most recent:
 
