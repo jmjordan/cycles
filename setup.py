@@ -12,7 +12,7 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 
 setup(name='cycles',
       version='0.9',
-      description='Menstrual cycle application',
+      description='A command line utility for logging menstrual cycles.',
       install_requires={'python-dateutil>=2.1',},
       entry_points={
             'console_scripts': [
